@@ -1,27 +1,14 @@
-from flask import Flask, jsonify, request
 import requests
 import os
-import openai
+from flask import Flask, request, jsonify
 from dotenv import load_dotenv
-import threading
 
-# โหลดค่าตัวแปรจากไฟล์ .env
+# โหลดค่าตัวแปรจาก .env
 load_dotenv()
-
-# ตั้งค่า API Keys
 ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
-PAGE_ID = os.getenv("FACEBOOK_PAGE_ID")
 AD_ACCOUNT_ID = os.getenv("FACEBOOK_AD_ACCOUNT_ID")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+PAGE_ID = os.getenv("FACEBOOK_PAGE_ID")
 
-# ตรวจสอบว่า API Keys ถูกต้อง
-if not all([ACCESS_TOKEN, PAGE_ID, AD_ACCOUNT_ID, OPENAI_API_KEY]):
-    raise ValueError("❌ ค่าตัวแปร API Keys ไม่ครบ ตรวจสอบ .env")
-
-# ตั้งค่า OpenAI
-openai.api_key = OPENAI_API_KEY
-
-# สร้าง Flask App
 app = Flask(__name__)
 
 # ✅ Route ตรวจสอบสถานะ API
@@ -30,7 +17,7 @@ def home():
     return jsonify({"message": "✅ AI Ad Manager API is running!"})
 
 
-# ✅ ฟังก์ชันสร้างแคมเปญใหม่
+# ✅ สร้าง Campaign
 def create_campaign():
     url = f"https://graph.facebook.com/v18.0/act_{AD_ACCOUNT_ID}/campaigns"
     params = {
@@ -41,55 +28,51 @@ def create_campaign():
         "access_token": ACCESS_TOKEN
     }
     
-    try:
-        response = requests.post(url, json=params, timeout=10)
-        response.raise_for_status()
-        campaign_id = response.json().get("id")
-        return campaign_id
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Error creating campaign: {e}")
-        return None
+    print("🔹 Creating Campaign...")
+    response = requests.post(url, json=params)
+    print("🔹 Campaign Response:", response.json())
+    
+    return response.json().get("id")
 
 
-# ✅ ฟังก์ชันสร้าง Ad Set ใหม่
+# ✅ สร้าง Ad Set
 def create_adset(campaign_id):
     url = f"https://graph.facebook.com/v18.0/act_{AD_ACCOUNT_ID}/adsets"
     params = {
-        "name": "AI Messenger AdSet",
+        "name": "AI AdSet",
         "campaign_id": campaign_id,
         "daily_budget": 300 * 100,  # งบ 300 บาท
         "billing_event": "IMPRESSIONS",
         "optimization_goal": "REPLIES",
-        "targeting": {"geo_locations": {"countries": ["TH"]}},
+        "targeting": {
+            "geo_locations": {"countries": ["TH"]},  
+            "age_min": 18,
+            "age_max": 45
+        },
         "status": "ACTIVE",
         "access_token": ACCESS_TOKEN
     }
-
-    try:
-        response = requests.post(url, json=params, timeout=10)
-        response.raise_for_status()
-        adset_id = response.json().get("id")
-        return adset_id
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Error creating adset: {e}")
-        return None
+    
+    print("🔹 Creating Ad Set...")
+    response = requests.post(url, json=params)
+    print("🔹 Ad Set Response:", response.json())
+    
+    return response.json().get("id")
 
 
-# ✅ ฟังก์ชันยิงโฆษณาเข้า Messenger
-def create_facebook_messenger_ad(adset_id, content, image_url=None):
+# ✅ สร้าง Ad
+def create_ad(adset_id):
     url = f"https://graph.facebook.com/v18.0/act_{AD_ACCOUNT_ID}/ads"
-
-    ad_params = {
+    params = {
         "name": "AI Messenger Ad",
         "adset_id": adset_id,
-        "status": "ACTIVE",
         "creative": {
             "title": "แชทกับเราตอนนี้!",
-            "body": content,
+            "body": "สนใจสินค้าของเรา? ทักแชทได้เลย!",
             "object_story_spec": {
                 "page_id": PAGE_ID,
                 "link_data": {
-                    "message": content,
+                    "message": "🔥 โปรโมชั่นพิเศษวันนี้! ทักแชทรับสิทธิพิเศษเลย!",
                     "call_to_action": {
                         "type": "MESSAGE_PAGE",
                         "value": {"page": PAGE_ID}
@@ -97,53 +80,39 @@ def create_facebook_messenger_ad(adset_id, content, image_url=None):
                 }
             }
         },
+        "status": "ACTIVE",
         "access_token": ACCESS_TOKEN
     }
+    
+    print("🔹 Creating Ad...")
+    response = requests.post(url, json=params)
+    print("🔹 Ad Response:", response.json())
 
-    if image_url:
-        ad_params["creative"]["object_story_spec"]["link_data"]["picture"] = image_url
-
-    try:
-        response = requests.post(url, json=ad_params, timeout=15)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        return {"error": str(e)}
+    return response.json()
 
 
-# ✅ API `/auto_ad` ต้องถูกเรียกก่อน ระบบถึงจะสร้างโฆษณา
+# ✅ API `/auto_ad` จะสร้างโฆษณาเมื่อถูกเรียก
 @app.route('/auto_ad', methods=['POST'])
 def auto_ad():
-    # 1️⃣ สร้างแคมเปญใหม่
+    print("🔹 Received API Call for /auto_ad")
+
     campaign_id = create_campaign()
     if not campaign_id:
-        return jsonify({"error": "❌ ไม่สามารถสร้างแคมเปญใหม่ได้"}), 400
+        return jsonify({"error": "❌ ไม่สามารถสร้าง Campaign ได้"}), 400
 
-    # 2️⃣ สร้าง Ad Set ใหม่
     adset_id = create_adset(campaign_id)
     if not adset_id:
-        return jsonify({"error": "❌ ไม่สามารถสร้าง Ad Set ได้"}), 400
+        return jsonify({"error": "❌ ไม่สามารถสร้าง AdSet ได้"}), 400
 
-    # 3️⃣ ใช้ AI สร้างข้อความโฆษณา
-    ad_content = "🔥 สนใจสินค้าเราหรือไม่? แชทกับเราตอนนี้! 💬"
-
-    # 4️⃣ ยิงโฆษณาไปยัง Messenger
-    ad_response = create_facebook_messenger_ad(adset_id, ad_content)
-
+    ad_response = create_ad(adset_id)
+    
     return jsonify({
         "campaign_id": campaign_id,
         "adset_id": adset_id,
-        "ad_text": ad_content,
         "ad_response": ad_response
     })
 
 
-# ✅ ให้ระบบสร้างโฆษณาทันทีหลังจากเซิร์ฟเวอร์เริ่มต้น
-def run_auto_ad():
-    print("🚀 กำลังสร้างโฆษณาอัตโนมัติ...")
-    requests.post("http://localhost:8080/auto_ad")
-
-# ✅ ใช้ Thread ให้รัน auto_ad() อัตโนมัติ
+# ✅ ใช้ Gunicorn เพื่อรองรับ Google Cloud Run
 if __name__ == "__main__":
-    threading.Thread(target=run_auto_ad).start()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
