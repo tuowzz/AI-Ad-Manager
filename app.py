@@ -51,14 +51,37 @@ def create_campaign():
         return None
 
 
+# ✅ ฟังก์ชันสร้าง Ad Set ใหม่
+def create_adset(campaign_id):
+    url = f"https://graph.facebook.com/v18.0/act_{AD_ACCOUNT_ID}/adsets"
+    params = {
+        "name": "AI Messenger AdSet",
+        "campaign_id": campaign_id,
+        "daily_budget": 300 * 100,  # งบ 300 บาท
+        "billing_event": "IMPRESSIONS",
+        "optimization_goal": "REPLIES",
+        "targeting": {"geo_locations": {"countries": ["TH"]}},
+        "status": "ACTIVE",
+        "access_token": ACCESS_TOKEN
+    }
+
+    try:
+        response = requests.post(url, json=params, timeout=10)
+        response.raise_for_status()
+        adset_id = response.json().get("id")
+        return adset_id
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error creating adset: {e}")
+        return None
+
+
 # ✅ ฟังก์ชันยิงโฆษณาเข้า Messenger
-def create_facebook_messenger_ad(campaign_id, content, image_url=None):
+def create_facebook_messenger_ad(adset_id, content, image_url=None):
     url = f"https://graph.facebook.com/v18.0/act_{AD_ACCOUNT_ID}/ads"
 
     ad_params = {
         "name": "AI Messenger Ad",
-        "campaign_id": campaign_id,
-        "daily_budget": 300 * 100,  # งบ 300 บาท
+        "adset_id": adset_id,
         "status": "ACTIVE",
         "creative": {
             "title": "แชทกับเราตอนนี้!",
@@ -96,18 +119,20 @@ def auto_ad():
     if not campaign_id:
         return jsonify({"error": "❌ ไม่สามารถสร้างแคมเปญใหม่ได้"}), 400
 
-    # 2️⃣ ใช้ AI วิเคราะห์กลุ่มเป้าหมาย
-    audience_data = "ข้อมูลกลุ่มเป้าหมายจากโฆษณาที่เคยรัน"
+    # 2️⃣ สร้าง Ad Set ใหม่
+    adset_id = create_adset(campaign_id)
+    if not adset_id:
+        return jsonify({"error": "❌ ไม่สามารถสร้าง Ad Set ได้"}), 400
 
     # 3️⃣ ใช้ AI สร้างข้อความโฆษณา
     ad_content = "🔥 สนใจสินค้าเราหรือไม่? แชทกับเราตอนนี้! 💬"
 
     # 4️⃣ ยิงโฆษณาไปยัง Messenger
-    ad_response = create_facebook_messenger_ad(campaign_id, ad_content)
+    ad_response = create_facebook_messenger_ad(adset_id, ad_content)
 
     return jsonify({
         "campaign_id": campaign_id,
-        "audience_analysis": audience_data,
+        "adset_id": adset_id,
         "ad_text": ad_content,
         "ad_response": ad_response
     })
