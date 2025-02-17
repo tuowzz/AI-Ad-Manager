@@ -32,51 +32,43 @@ def home():
 # ✅ ฟังก์ชันดึงโพสต์จากเพจ
 def get_page_posts():
     url = f"https://graph.facebook.com/v18.0/{PAGE_ID}/posts"
-    params = {
-        "fields": "message,full_picture,created_time",
-        "access_token": ACCESS_TOKEN
-    }
-    response = requests.get(url, params=params)
-    
-    if response.status_code != 200:
-        return []
+    params = {"fields": "message,full_picture,created_time", "access_token": ACCESS_TOKEN}
 
-    data = response.json()
-    posts = [
-        {
-            "message": post.get("message", ""),
-            "image": post.get("full_picture", ""),
-            "date": post["created_time"]
-        }
-        for post in data.get("data", []) if "message" in post
-    ]
-    return posts
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return [
+            {"message": post.get("message", ""), "image": post.get("full_picture", ""), "date": post["created_time"]}
+            for post in data.get("data", []) if "message" in post
+        ]
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error fetching posts: {e}")
+        return []
 
 
 # ✅ ฟังก์ชันดึงวิดีโอ Reels จากเพจ
 def get_page_reels():
     url = f"https://graph.facebook.com/v18.0/{PAGE_ID}/videos"
-    params = {
-        "fields": "title,description,picture,source,created_time",
-        "access_token": ACCESS_TOKEN
-    }
-    response = requests.get(url, params=params)
-    
-    if response.status_code != 200:
-        return []
+    params = {"fields": "title,description,picture,source,created_time", "access_token": ACCESS_TOKEN}
 
-    data = response.json()
-    reels = [
-        {
-            "title": video.get("title", ""),
-            "description": video.get("description", ""),
-            "thumbnail": video["picture"],
-            "video_url": video["source"],
-            "date": video["created_time"]
-        }
-        for video in data.get("data", []) if "source" in video
-    ]
-    return reels
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return [
+            {
+                "title": video.get("title", ""),
+                "description": video.get("description", ""),
+                "thumbnail": video["picture"],
+                "video_url": video["source"],
+                "date": video["created_time"]
+            }
+            for video in data.get("data", []) if "source" in video
+        ]
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error fetching reels: {e}")
+        return []
 
 
 # ✅ ฟังก์ชันใช้ AI วิเคราะห์กลุ่มเป้าหมาย
@@ -139,9 +131,7 @@ def create_facebook_messenger_ad(content, image_url=None):
                     "message": content,
                     "call_to_action": {
                         "type": "MESSAGE_PAGE",
-                        "value": {
-                            "page": PAGE_ID
-                        }
+                        "value": {"page": PAGE_ID}
                     }
                 }
             }
@@ -152,12 +142,12 @@ def create_facebook_messenger_ad(content, image_url=None):
     if image_url:
         ad_params["creative"]["object_story_spec"]["link_data"]["picture"] = image_url
 
-    response = requests.post(url, json=ad_params)
-    
-    if response.status_code != 200:
-        return {"error": response.json()}
-    
-    return response.json()
+    try:
+        response = requests.post(url, json=ad_params, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        return {"error": str(e)}
 
 
 # ✅ API `/auto_ad` ต้องถูกเรียกก่อน ระบบถึงจะสร้างโฆษณา
@@ -193,21 +183,5 @@ def auto_ad():
 
 
 # ✅ ใช้ Gunicorn เพื่อรองรับ Google Cloud Run
-if __name__ != "__main__":
-    from gunicorn.app.base import BaseApplication
-
-    class StandaloneApplication(BaseApplication):
-        def __init__(self, app, options=None):
-            self.application = app
-            self.options = options or {}
-            super().__init__()
-
-        def load_config(self):
-            for key, value in self.options.items():
-                self.cfg.set(key, value)
-
-        def load(self):
-            return self.application
-
-    options = {"bind": "0.0.0.0:8080", "workers": 2}
-    StandaloneApplication(app, options).run()
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
