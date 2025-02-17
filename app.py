@@ -16,8 +16,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not all([ACCESS_TOKEN, AD_ACCOUNT_ID, OPENAI_API_KEY]):
     raise ValueError("❌ ค่าตัวแปร API Keys ไม่ครบ ตรวจสอบ .env")
 
-# ตั้งค่า OpenAI
-openai.api_key = OPENAI_API_KEY
+# ตั้งค่า OpenAI API ตามเวอร์ชันล่าสุด (>=1.0.0)
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # สร้าง Flask App
 app = Flask(__name__)
@@ -40,11 +40,11 @@ def analyze_audience():
     """
     
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}]
         )
-        return response["choices"][0]["message"]["content"]
+        return response.choices[0].message.content
     except Exception as e:
         return f"❌ OpenAI API Error: {str(e)}"
 
@@ -69,13 +69,9 @@ def create_facebook_custom_audience(audience_name, description):
 
     payload = {
         "name": audience_name,
-        "subtype": "LOOKALIKE",
-        "lookalike_spec": {
-            "type": "custom_ratio",
-            "ratio": 0.01,
-            "country": "TH"
-        },
+        "subtype": "CUSTOM",
         "description": description,
+        "customer_file_source": "USER_PROVIDED_ONLY",
         "access_token": ACCESS_TOKEN
     }
 
