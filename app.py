@@ -12,9 +12,9 @@ ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 AD_ACCOUNT_ID = os.getenv("FACEBOOK_AD_ACCOUNT_ID")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# ตรวจสอบ API Key
+# ตรวจสอบว่า API Keys ถูกต้อง
 if not all([ACCESS_TOKEN, AD_ACCOUNT_ID, OPENAI_API_KEY]):
-    raise ValueError("❌ API Keys ไม่ครบ ตรวจสอบ .env")
+    raise ValueError("❌ ค่าตัวแปร API Keys ไม่ครบ ตรวจสอบ .env")
 
 # ตั้งค่า OpenAI
 openai.api_key = OPENAI_API_KEY
@@ -28,14 +28,17 @@ def home():
     return jsonify({"message": "✅ AI Custom Audience API is running!"})
 
 
-# ✅ ฟังก์ชันใช้ AI วิเคราะห์กลุ่มเป้าหมาย
-def analyze_audience_by_product(product_info):
-    prompt = f"""
-    สินค้าที่ขาย: {product_info}
+# ✅ ฟังก์ชันใช้ AI สร้างกลุ่มเป้าหมายที่เหมาะสม
+def analyze_audience():
+    prompt = """
+    เรากำลังจะสร้างโฆษณาขายบลัชออน ลิปสติก และคอนซีลเลอร์
+    - สินค้าเกี่ยวกับความงามและเครื่องสำอาง
+    - ต้องการให้ AI วิเคราะห์กลุ่มเป้าหมายที่มีแนวโน้มสนใจผลิตภัณฑ์
+    - ระบุ อายุ, เพศ, ความสนใจ และพฤติกรรม ที่เหมาะสมกับผลิตภัณฑ์
 
-    วิเคราะห์และสรุปว่าใครเป็นกลุ่มเป้าหมายที่เหมาะสมที่สุด เช่น เพศ อายุ ความสนใจ และพฤติกรรมการซื้อ
+    ช่วยสรุปกลุ่มเป้าหมายที่เหมาะสมที่สุดให้หน่อย
     """
-
+    
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4",
@@ -46,45 +49,44 @@ def analyze_audience_by_product(product_info):
         return f"❌ OpenAI API Error: {str(e)}"
 
 
-# ✅ ฟังก์ชันสร้าง Custom Audience บน Facebook
-def create_custom_audience(name, description, targeting_data):
+# ✅ ฟังก์ชันสร้าง Custom Audience บน Facebook Ads
+def create_facebook_custom_audience(audience_name, description):
     url = f"https://graph.facebook.com/v18.0/act_{AD_ACCOUNT_ID}/customaudiences"
-    
+
     payload = {
-        "name": name,
-        "description": description,
+        "name": audience_name,
         "subtype": "LOOKALIKE",
-        "origin_audience_id": targeting_data,  
+        "lookalike_spec": {
+            "type": "custom_ratio",
+            "ratio": 0.01,
+            "country": "TH"
+        },
+        "description": description,
         "access_token": ACCESS_TOKEN
     }
 
-    response = requests.post(url, json=payload)
+    try:
+        response = requests.post(url, json=payload, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        return {"error": str(e)}
 
-    if response.status_code == 200:
-        return {"audience_id": response.json().get("id"), "message": "✅ Custom Audience created successfully!"}
-    else:
-        return {"error": response.json()}
 
-
-# ✅ API `/create_audience_from_product` สำหรับสร้างกลุ่มเป้าหมายจากสินค้า
-@app.route('/create_audience_from_product', methods=['POST'])
+# ✅ API `/create_audience` สำหรับสร้างกลุ่มเป้าหมายอัตโนมัติ
+@app.route('/create_audience', methods=['POST'])
 def create_audience():
-    data = request.get_json()
-    product_info = data.get("product_info", "ไม่มีข้อมูลสินค้า")
-    audience_name = data.get("audience_name", "Custom Audience AI")
-    description = data.get("description", "สร้างโดย AI")
-
-    if not product_info:
-        return jsonify({"error": "❌ ต้องระบุข้อมูลสินค้า"}), 400
-
     # ใช้ AI วิเคราะห์กลุ่มเป้าหมาย
-    analysis_result = analyze_audience_by_product(product_info)
+    audience_data = analyze_audience()
 
     # สร้าง Custom Audience บน Facebook
-    audience_response = create_custom_audience(audience_name, description, analysis_result)
+    audience_response = create_facebook_custom_audience(
+        audience_name="AI Custom Audience - Beauty",
+        description=audience_data
+    )
 
     return jsonify({
-        "audience_analysis": analysis_result,
+        "audience_analysis": audience_data,
         "facebook_response": audience_response
     })
 
