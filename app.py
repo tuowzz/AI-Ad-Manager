@@ -13,6 +13,10 @@ PAGE_ID = os.getenv("FACEBOOK_PAGE_ID")
 AD_ACCOUNT_ID = os.getenv("FACEBOOK_AD_ACCOUNT_ID")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# ตรวจสอบว่า API Keys ถูกต้อง
+if not all([ACCESS_TOKEN, PAGE_ID, AD_ACCOUNT_ID, OPENAI_API_KEY]):
+    raise ValueError("❌ ค่าตัวแปร API Keys ไม่ครบ ตรวจสอบ .env")
+
 # ตั้งค่า OpenAI
 openai.api_key = OPENAI_API_KEY
 
@@ -33,8 +37,11 @@ def get_page_posts():
         "access_token": ACCESS_TOKEN
     }
     response = requests.get(url, params=params)
-    data = response.json()
+    
+    if response.status_code != 200:
+        return []
 
+    data = response.json()
     posts = [
         {
             "message": post.get("message", ""),
@@ -54,8 +61,11 @@ def get_page_reels():
         "access_token": ACCESS_TOKEN
     }
     response = requests.get(url, params=params)
-    data = response.json()
+    
+    if response.status_code != 200:
+        return []
 
+    data = response.json()
     reels = [
         {
             "title": video.get("title", ""),
@@ -78,12 +88,36 @@ def analyze_audience(audience_data):
     วิเคราะห์และสรุปว่ากลุ่มเป้าหมายที่เหมาะสมที่สุดคือกลุ่มไหน และให้คำแนะนำว่าควรยิงโฆษณาไปที่ใคร
     """
     
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "system", "content": prompt}]
-    )
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "system", "content": prompt}]
+        )
+        return response["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"❌ OpenAI API Error: {str(e)}"
+
+
+# ✅ ฟังก์ชันสร้างข้อความโฆษณาด้วย AI
+def generate_ad_from_content(content, audience):
+    prompt = f"""
+    นี่คือคอนเทนต์จากเพจ Facebook:
+    {content}
+
+    และนี่คือข้อมูลกลุ่มเป้าหมาย:
+    {audience}
+
+    สร้างข้อความโฆษณาที่ดึงดูดลูกค้าและเหมาะกับกลุ่มเป้าหมาย
+    """
     
-    return response["choices"][0]["message"]["content"]
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "system", "content": prompt}]
+        )
+        return response["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"❌ OpenAI API Error: {str(e)}"
 
 
 # ✅ ฟังก์ชันยิงโฆษณาเข้า Messenger
@@ -119,6 +153,10 @@ def create_facebook_messenger_ad(content, image_url=None):
         ad_params["creative"]["object_story_spec"]["link_data"]["picture"] = image_url
 
     response = requests.post(url, json=ad_params)
+    
+    if response.status_code != 200:
+        return {"error": response.json()}
+    
     return response.json()
 
 
@@ -135,7 +173,7 @@ def auto_ad():
         best_content = reels[0]["description"]
         image_url = reels[0]["thumbnail"]
     else:
-        return jsonify({"error": "ไม่พบโพสต์หรือ Reels ที่สามารถใช้ได้"}), 400
+        return jsonify({"error": "❌ ไม่พบโพสต์หรือ Reels ที่สามารถใช้ได้"}), 400
 
     # ใช้ AI วิเคราะห์กลุ่มเป้าหมาย
     audience_data = analyze_audience("ข้อมูลกลุ่มเป้าหมายจากโฆษณาที่เคยรัน")
@@ -154,6 +192,22 @@ def auto_ad():
     })
 
 
-# ✅ รันเซิร์ฟเวอร์ Flask
-if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+# ✅ ใช้ Gunicorn เพื่อรองรับ Google Cloud Run
+if __name__ != "__main__":
+    from gunicorn.app.base import BaseApplication
+
+    class StandaloneApplication(BaseApplication):
+        def __init__(self, app, options=None):
+            self.application = app
+            self.options = options or {}
+            super().__init__()
+
+        def load_config(self):
+            for key, value in self.options.items():
+                self.cfg.set(key, value)
+
+        def load(self):
+            return self.application
+
+    options = {"bind": "0.0.0.0:8080", "workers": 2}
+    StandaloneApplication(app, options).run()
