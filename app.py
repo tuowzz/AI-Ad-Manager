@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 import requests
 import os
 from dotenv import load_dotenv
@@ -16,11 +16,17 @@ if not ACCESS_TOKEN or not AD_ACCOUNT_ID:
 
 app = Flask(__name__)
 
+# ✅ Route หลักสำหรับเช็คว่า API ทำงานหรือไม่
+@app.route('/')
+def home():
+    return jsonify({"message": "✅ AI Ad Manager API is running!"})
+
+# ✅ Route สำหรับดึงข้อมูลโฆษณาจาก Facebook Ads API
 @app.route('/get_ads', methods=['GET'])
 def get_ads():
     url = f"https://graph.facebook.com/v18.0/act_{AD_ACCOUNT_ID}/insights"
     params = {
-        "fields": "impressions,clicks,cost_per_click",
+        "fields": "impressions,clicks,cpc,ctr,spend,reach",
         "access_token": ACCESS_TOKEN
     }
     try:
@@ -35,9 +41,6 @@ def get_ads():
     except requests.exceptions.RequestException as e:
         return jsonify({"error": str(e)}), 500  # ถ้า API ล้มเหลว ส่ง Error กลับไป
 
-@app.route('/')
-def home():
-    return jsonify({"message": "✅ AI Ad Manager API is running!"})
-
+# ✅ รันเซิร์ฟเวอร์ (ใช้ Gunicorn บน Cloud Run)
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
