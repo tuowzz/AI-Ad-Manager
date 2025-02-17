@@ -42,11 +42,25 @@ def analyze_audience():
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4",
-            messages=[{"role": "system", "content": prompt}]
+            messages=[{"role": "user", "content": prompt}]
         )
         return response["choices"][0]["message"]["content"]
     except Exception as e:
         return f"❌ OpenAI API Error: {str(e)}"
+
+
+# ✅ ฟังก์ชันตรวจสอบว่า Facebook Token ใช้งานได้หรือไม่
+def check_facebook_token():
+    url = f"https://graph.facebook.com/v18.0/me?access_token={ACCESS_TOKEN}"
+    
+    try:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        if "error" in data:
+            return False, data["error"]["message"]
+        return True, "✅ Token ใช้งานได้"
+    except Exception as e:
+        return False, str(e)
 
 
 # ✅ ฟังก์ชันสร้าง Custom Audience บน Facebook Ads
@@ -76,8 +90,16 @@ def create_facebook_custom_audience(audience_name, description):
 # ✅ API `/create_audience` สำหรับสร้างกลุ่มเป้าหมายอัตโนมัติ
 @app.route('/create_audience', methods=['POST'])
 def create_audience():
+    # ตรวจสอบว่า Token ใช้งานได้หรือไม่
+    token_valid, token_message = check_facebook_token()
+    if not token_valid:
+        return jsonify({"error": f"❌ Facebook Token Invalid: {token_message}"}), 400
+
     # ใช้ AI วิเคราะห์กลุ่มเป้าหมาย
     audience_data = analyze_audience()
+
+    if "❌ OpenAI API Error" in audience_data:
+        return jsonify({"error": audience_data}), 400
 
     # สร้าง Custom Audience บน Facebook
     audience_response = create_facebook_custom_audience(
