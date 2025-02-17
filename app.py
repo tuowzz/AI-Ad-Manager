@@ -11,13 +11,14 @@ load_dotenv()
 ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 AD_ACCOUNT_ID = os.getenv("FACEBOOK_AD_ACCOUNT_ID")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+SOURCE_AUDIENCE_ID = os.getenv("FACEBOOK_SOURCE_AUDIENCE_ID")  # ✅ แหล่งข้อมูลสำหรับ Lookalike Audience
 
 # ตรวจสอบว่า API Keys ถูกต้อง
-if not all([ACCESS_TOKEN, AD_ACCOUNT_ID, OPENAI_API_KEY]):
+if not all([ACCESS_TOKEN, AD_ACCOUNT_ID, OPENAI_API_KEY, SOURCE_AUDIENCE_ID]):
     raise ValueError("❌ ค่าตัวแปร API Keys ไม่ครบ ตรวจสอบ .env")
 
-# ตั้งค่า OpenAI API ตามเวอร์ชันล่าสุด (>=1.0.0)
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
+# ตั้งค่า OpenAI API เวอร์ชันใหม่
+client = openai.Client(api_key=OPENAI_API_KEY)
 
 # สร้าง Flask App
 app = Flask(__name__)
@@ -41,7 +42,7 @@ def analyze_audience():
     
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
         return response.choices[0].message.content
@@ -63,15 +64,20 @@ def check_facebook_token():
         return False, str(e)
 
 
-# ✅ ฟังก์ชันสร้าง Custom Audience บน Facebook Ads
-def create_facebook_custom_audience(audience_name, description):
+# ✅ ฟังก์ชันสร้าง Lookalike Audience บน Facebook Ads
+def create_facebook_lookalike_audience(audience_name, description):
     url = f"https://graph.facebook.com/v18.0/act_{AD_ACCOUNT_ID}/customaudiences"
 
     payload = {
         "name": audience_name,
-        "subtype": "CUSTOM",
+        "subtype": "LOOKALIKE",
+        "lookalike_spec": {
+            "type": "custom_ratio",
+            "ratio": 0.01,  # ✅ Lookalike 1% 
+            "country": "TH"  # ✅ ประเทศไทย
+        },
+        "origin_audience_id": SOURCE_AUDIENCE_ID,  # ✅ ใช้ Audience ID เดิมเป็นแหล่งข้อมูล
         "description": description,
-        "customer_file_source": "USER_PROVIDED_ONLY",
         "access_token": ACCESS_TOKEN
     }
 
@@ -97,9 +103,9 @@ def create_audience():
     if "❌ OpenAI API Error" in audience_data:
         return jsonify({"error": audience_data}), 400
 
-    # สร้าง Custom Audience บน Facebook
-    audience_response = create_facebook_custom_audience(
-        audience_name="AI Custom Audience - Beauty",
+    # สร้าง Lookalike Audience บน Facebook
+    audience_response = create_facebook_lookalike_audience(
+        audience_name="AI Lookalike Audience - Beauty",
         description=audience_data
     )
 
