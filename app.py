@@ -7,27 +7,37 @@ from dotenv import load_dotenv
 # โหลดค่าตัวแปรจากไฟล์ .env
 load_dotenv()
 
-# ตั้งค่า API Keys
+# ✅ ตั้งค่า API Keys
 ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 PAGE_ID = os.getenv("FACEBOOK_PAGE_ID")
 AD_ACCOUNT_ID = os.getenv("FACEBOOK_AD_ACCOUNT_ID")
+CAMPAIGN_ID = os.getenv("FACEBOOK_CAMPAIGN_ID")
+ADSET_ID = os.getenv("FACEBOOK_ADSET_ID")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # ตรวจสอบว่า API Keys ถูกต้อง
-if not all([ACCESS_TOKEN, PAGE_ID, AD_ACCOUNT_ID, OPENAI_API_KEY]):
-    raise ValueError("❌ ค่าตัวแปร API Keys ไม่ครบ ตรวจสอบ .env")
+missing_keys = [key for key, value in {
+    "FACEBOOK_ACCESS_TOKEN": ACCESS_TOKEN,
+    "FACEBOOK_PAGE_ID": PAGE_ID,
+    "FACEBOOK_AD_ACCOUNT_ID": AD_ACCOUNT_ID,
+    "FACEBOOK_CAMPAIGN_ID": CAMPAIGN_ID,
+    "FACEBOOK_ADSET_ID": ADSET_ID,
+    "OPENAI_API_KEY": OPENAI_API_KEY
+}.items() if not value]
 
-# ตั้งค่า OpenAI
+if missing_keys:
+    raise ValueError(f"❌ ขาดตัวแปรต่อไปนี้ใน .env: {', '.join(missing_keys)}")
+
+# ตั้งค่า OpenAI API
 openai.api_key = OPENAI_API_KEY
 
-# สร้าง Flask App
+# ✅ สร้าง Flask App
 app = Flask(__name__)
 
 # ✅ Route ตรวจสอบสถานะ API
 @app.route('/')
 def home():
     return jsonify({"message": "✅ AI Ad Manager API is running!"})
-
 
 # ✅ ฟังก์ชันดึงโพสต์จากเพจ
 def get_page_posts():
@@ -45,7 +55,6 @@ def get_page_posts():
     except requests.exceptions.RequestException as e:
         print(f"❌ Error fetching posts: {e}")
         return []
-
 
 # ✅ ฟังก์ชันดึงวิดีโอ Reels จากเพจ
 def get_page_reels():
@@ -70,7 +79,6 @@ def get_page_reels():
         print(f"❌ Error fetching reels: {e}")
         return []
 
-
 # ✅ ฟังก์ชันใช้ AI วิเคราะห์กลุ่มเป้าหมาย
 def analyze_audience(audience_data):
     prompt = f"""
@@ -88,7 +96,6 @@ def analyze_audience(audience_data):
         return response["choices"][0]["message"]["content"]
     except Exception as e:
         return f"❌ OpenAI API Error: {str(e)}"
-
 
 # ✅ ฟังก์ชันสร้างข้อความโฆษณาด้วย AI
 def generate_ad_from_content(content, audience):
@@ -111,16 +118,15 @@ def generate_ad_from_content(content, audience):
     except Exception as e:
         return f"❌ OpenAI API Error: {str(e)}"
 
-
 # ✅ ฟังก์ชันยิงโฆษณาเข้า Messenger
 def create_facebook_messenger_ad(content, image_url=None):
     url = f"https://graph.facebook.com/v18.0/act_{AD_ACCOUNT_ID}/ads"
 
     ad_params = {
         "name": "AI Messenger Ad",
-        "campaign_id": "YOUR_CAMPAIGN_ID",
-        "adset_id": "YOUR_ADSET_ID",
-        "daily_budget": 300 * 100,  # งบ 300 บาท
+        "campaign_id": CAMPAIGN_ID,
+        "adset_id": ADSET_ID,
+        "daily_budget": 300 * 100,
         "status": "ACTIVE",
         "creative": {
             "title": "แชทกับเราตอนนี้!",
@@ -149,8 +155,7 @@ def create_facebook_messenger_ad(content, image_url=None):
     except requests.exceptions.RequestException as e:
         return {"error": str(e)}
 
-
-# ✅ API `/auto_ad` ต้องถูกเรียกก่อน ระบบถึงจะสร้างโฆษณา
+# ✅ API `/auto_ad`
 @app.route('/auto_ad', methods=['POST'])
 def auto_ad():
     posts = get_page_posts()
@@ -165,13 +170,8 @@ def auto_ad():
     else:
         return jsonify({"error": "❌ ไม่พบโพสต์หรือ Reels ที่สามารถใช้ได้"}), 400
 
-    # ใช้ AI วิเคราะห์กลุ่มเป้าหมาย
     audience_data = analyze_audience("ข้อมูลกลุ่มเป้าหมายจากโฆษณาที่เคยรัน")
-    
-    # ใช้ AI สร้างข้อความโฆษณา
     ad_content = generate_ad_from_content(best_content, audience_data)
-
-    # ยิงโฆษณาไปยัง Messenger
     ad_response = create_facebook_messenger_ad(ad_content, image_url)
 
     return jsonify({
@@ -181,7 +181,22 @@ def auto_ad():
         "ad_response": ad_response
     })
 
-
 # ✅ ใช้ Gunicorn เพื่อรองรับ Google Cloud Run
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    from gunicorn.app.base import BaseApplication
+
+    class StandaloneApplication(BaseApplication):
+        def __init__(self, app, options=None):
+            self.application = app
+            self.options = options or {}
+            super().__init__()
+
+        def load_config(self):
+            for key, value in self.options.items():
+                self.cfg.set(key, value)
+
+        def load(self):
+            return self.application
+
+    options = {"bind": "0.0.0.0:8080", "workers": 2}
+    StandaloneApplication(app, options).run()
