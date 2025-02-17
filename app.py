@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 import requests
 import os
 import openai
@@ -11,7 +11,7 @@ load_dotenv()
 ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 AD_ACCOUNT_ID = os.getenv("FACEBOOK_AD_ACCOUNT_ID")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-SOURCE_AUDIENCE_ID = os.getenv("FACEBOOK_SOURCE_AUDIENCE_ID")  # ✅ แหล่งข้อมูลสำหรับ Lookalike Audience
+SOURCE_AUDIENCE_ID = os.getenv("FACEBOOK_SOURCE_AUDIENCE_ID")  # ✅ แหล่งข้อมูลเดิม
 
 # ตรวจสอบว่า API Keys ถูกต้อง
 if not all([ACCESS_TOKEN, AD_ACCOUNT_ID, OPENAI_API_KEY, SOURCE_AUDIENCE_ID]):
@@ -22,12 +22,6 @@ client = openai.Client(api_key=OPENAI_API_KEY)
 
 # สร้าง Flask App
 app = Flask(__name__)
-
-# ✅ Route ตรวจสอบสถานะ API
-@app.route('/')
-def home():
-    return jsonify({"message": "✅ AI Custom Audience API is running!"})
-
 
 # ✅ ฟังก์ชันใช้ AI สร้างกลุ่มเป้าหมายที่เหมาะสม
 def analyze_audience():
@@ -88,33 +82,34 @@ def create_facebook_lookalike_audience(audience_name, description):
     except requests.exceptions.RequestException as e:
         return {"error": str(e)}
 
-
-# ✅ API `/create_audience` สำหรับสร้างกลุ่มเป้าหมายอัตโนมัติ
-@app.route('/create_audience', methods=['POST'])
-def create_audience():
-    # ตรวจสอบว่า Token ใช้งานได้หรือไม่
+# ✅ ฟังก์ชันสร้างกลุ่มเป้าหมายอัตโนมัติ (รันอัตโนมัติเมื่อโค้ดเริ่มทำงาน)
+def auto_create_audience():
+    print("🚀 กำลังตรวจสอบ Facebook Token...")
     token_valid, token_message = check_facebook_token()
     if not token_valid:
-        return jsonify({"error": f"❌ Facebook Token Invalid: {token_message}"}), 400
+        print(f"❌ Facebook Token Invalid: {token_message}")
+        return
 
-    # ใช้ AI วิเคราะห์กลุ่มเป้าหมาย
+    print("🧠 กำลังใช้ AI วิเคราะห์กลุ่มเป้าหมาย...")
     audience_data = analyze_audience()
-
     if "❌ OpenAI API Error" in audience_data:
-        return jsonify({"error": audience_data}), 400
+        print(f"❌ AI Error: {audience_data}")
+        return
 
-    # สร้าง Lookalike Audience บน Facebook
+    print("📢 กำลังสร้าง Lookalike Audience บน Facebook...")
     audience_response = create_facebook_lookalike_audience(
         audience_name="AI Lookalike Audience - Beauty",
         description=audience_data
     )
+    print(f"✅ Audience Created: {audience_response}")
 
-    return jsonify({
-        "audience_analysis": audience_data,
-        "facebook_response": audience_response
-    })
-
+# ✅ Route ตรวจสอบสถานะ API
+@app.route('/')
+def home():
+    return jsonify({"message": "✅ AI Custom Audience API is running!"})
 
 # ✅ ใช้ Gunicorn เพื่อรองรับ Google Cloud Run
 if __name__ == "__main__":
+    print("🌐 เริ่มเซิร์ฟเวอร์ Flask...")
+    auto_create_audience()  # ✅ รันฟังก์ชันสร้างกลุ่มเป้าหมายอัตโนมัติ
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
