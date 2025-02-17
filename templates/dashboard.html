@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Ad Manager Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>AI Ad Manager Dashboard</h1>
+        <button onclick="fetchAds()">โหลดข้อมูลโฆษณา</button>
+        <pre id="result"></pre>
+    </div>
+
+    <script>
+        function fetchAds() {
+            fetch('/get_ads')
+                .then(response => response.json())
+                .then(data => document.getElementById("result").innerText = JSON.stringify(data, null, 2));
+        }
+    </script>
+</body>
+</html>
