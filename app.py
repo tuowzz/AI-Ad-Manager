@@ -4,26 +4,25 @@ import os
 import openai
 from dotenv import load_dotenv
 
-# โหลดค่าตัวแปรจากไฟล์ .env
+# ✅ โหลดค่าตัวแปรจากไฟล์ .env
 load_dotenv()
 
-# ตั้งค่า API Keys
+# ✅ ตั้งค่า API Keys
 ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 AD_ACCOUNT_ID = os.getenv("FACEBOOK_AD_ACCOUNT_ID")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-SOURCE_AUDIENCE_ID = os.getenv("FACEBOOK_SOURCE_AUDIENCE_ID")  # ✅ แหล่งข้อมูลเดิม
 
-# ตรวจสอบว่า API Keys ถูกต้อง
-if not all([ACCESS_TOKEN, AD_ACCOUNT_ID, OPENAI_API_KEY, SOURCE_AUDIENCE_ID]):
+# ✅ ตรวจสอบว่า API Keys ถูกต้อง
+if not all([ACCESS_TOKEN, AD_ACCOUNT_ID, OPENAI_API_KEY]):
     raise ValueError("❌ ค่าตัวแปร API Keys ไม่ครบ ตรวจสอบ .env")
 
-# ตั้งค่า OpenAI API เวอร์ชันใหม่
-client = openai.Client(api_key=OPENAI_API_KEY)
+# ✅ ตั้งค่า OpenAI API Client
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
-# สร้าง Flask App
+# ✅ สร้าง Flask App
 app = Flask(__name__)
 
-# ✅ ฟังก์ชันใช้ AI สร้างกลุ่มเป้าหมายที่เหมาะสม
+# ✅ ฟังก์ชันใช้ AI วิเคราะห์กลุ่มเป้าหมาย (ใหม่ 100%)
 def analyze_audience():
     prompt = """
     เรากำลังจะสร้างโฆษณาขายบลัชออน ลิปสติก และคอนซีลเลอร์
@@ -43,7 +42,6 @@ def analyze_audience():
     except Exception as e:
         return f"❌ OpenAI API Error: {str(e)}"
 
-
 # ✅ ฟังก์ชันตรวจสอบว่า Facebook Token ใช้งานได้หรือไม่
 def check_facebook_token():
     url = f"https://graph.facebook.com/v18.0/me?access_token={ACCESS_TOKEN}"
@@ -57,21 +55,15 @@ def check_facebook_token():
     except Exception as e:
         return False, str(e)
 
-
-# ✅ ฟังก์ชันสร้าง Lookalike Audience บน Facebook Ads
-def create_facebook_lookalike_audience(audience_name, description):
+# ✅ ฟังก์ชันสร้าง Custom Audience ใหม่ (ไม่ใช้กลุ่มเก่า)
+def create_facebook_custom_audience(audience_name, description):
     url = f"https://graph.facebook.com/v18.0/act_{AD_ACCOUNT_ID}/customaudiences"
 
     payload = {
         "name": audience_name,
-        "subtype": "LOOKALIKE",
-        "lookalike_spec": {
-            "type": "custom_ratio",
-            "ratio": 0.01,  # ✅ Lookalike 1% 
-            "country": "TH"  # ✅ ประเทศไทย
-        },
-        "origin_audience_id": SOURCE_AUDIENCE_ID,  # ✅ ใช้ Audience ID เดิมเป็นแหล่งข้อมูล
+        "subtype": "CUSTOM",
         "description": description,
+        "customer_file_source": "USER_PROVIDED_ONLY",
         "access_token": ACCESS_TOKEN
     }
 
@@ -88,28 +80,36 @@ def auto_create_audience():
     token_valid, token_message = check_facebook_token()
     if not token_valid:
         print(f"❌ Facebook Token Invalid: {token_message}")
-        return
+        return {"error": f"Facebook Token Invalid: {token_message}"}
 
     print("🧠 กำลังใช้ AI วิเคราะห์กลุ่มเป้าหมาย...")
     audience_data = analyze_audience()
     if "❌ OpenAI API Error" in audience_data:
         print(f"❌ AI Error: {audience_data}")
-        return
+        return {"error": audience_data}
 
-    print("📢 กำลังสร้าง Lookalike Audience บน Facebook...")
-    audience_response = create_facebook_lookalike_audience(
-        audience_name="AI Lookalike Audience - Beauty",
+    print("📢 กำลังสร้าง Custom Audience บน Facebook...")
+    audience_response = create_facebook_custom_audience(
+        audience_name="AI Custom Audience - Beauty",
         description=audience_data
     )
     print(f"✅ Audience Created: {audience_response}")
+    return audience_response
 
 # ✅ Route ตรวจสอบสถานะ API
 @app.route('/')
 def home():
     return jsonify({"message": "✅ AI Custom Audience API is running!"})
 
+# ✅ Route สร้างกลุ่มเป้าหมายแบบ Manual
+@app.route('/create_audience', methods=['POST'])
+def create_audience():
+    response = auto_create_audience()
+    return jsonify(response)
+
 # ✅ ใช้ Gunicorn เพื่อรองรับ Google Cloud Run
 if __name__ == "__main__":
     print("🌐 เริ่มเซิร์ฟเวอร์ Flask...")
-    auto_create_audience()  # ✅ รันฟังก์ชันสร้างกลุ่มเป้าหมายอัตโนมัติ
+    response = auto_create_audience()  # ✅ สร้างกลุ่มเป้าหมายอัตโนมัติทันทีที่รัน
+    print(response)
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
